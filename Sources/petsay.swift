@@ -11,7 +11,7 @@ import AppKit
 
 let bundleID = "com.benelsom.touchbarpet"
 let sayNote = Notification.Name("com.benelsom.touchbarpet.say")
-let moods = ["inactive", "waiting", "working", "needs", "done", "alert"]
+let moods = ["inactive", "contented", "waiting", "working", "needs", "done", "alert"]
 let themes = ["grey", "ginger", "cream", "blue", "calico"]
 let prefs = UserDefaults(suiteName: bundleID)!
 
@@ -28,7 +28,6 @@ func usage() -> Never {
       petsay --mood MOOD             change what the cat is doing for a few seconds
       echo "message" | petsay        read the note from stdin
       petsay --theme NAME            recolour the cat: \(themes.joined(separator: ", "))
-      petsay --pet [--seconds N]     pet the cat from here (same as touching it)
       petsay --demo                  show each state in turn, about a minute
       petsay --status                list what the cat thinks each Claude is doing
       petsay --clear                 forget every Claude (for a note that's stuck)
@@ -62,6 +61,7 @@ func ensureRunning() -> Bool {
     let cfg = NSWorkspace.OpenConfiguration()
     cfg.activates = false
     cfg.addsToRecentItems = false
+    cfg.arguments = ["--background"] // start the cat without opening the window
     let done = DispatchSemaphore(value: 0)
     NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, _ in done.signal() }
     _ = done.wait(timeout: .now() + 5)
@@ -175,12 +175,13 @@ func handleHook() -> Never {
 func demo() -> Never {
     guard ensureRunning() else { fail("Couldn't find or start Touch_Bar_Pet.app. Run install.sh first.") }
     let steps: [(about: String, mood: String, note: String?)] = [
-        ("Asleep: no Claude is doing anything", "inactive", nil),
+        ("Asleep: Claude is closed, or nothing has happened for 30 seconds", "inactive", nil),
+        ("Contented: Claude is open, nothing needs you and nothing is running", "contented", nil),
         ("Walking: your reward, Claude is working and nothing needs you", "working", nil),
-        ("Sitting with a note: a Claude has finished and is waiting for you", "waiting", "Combo Caller needs you"),
+        ("Sitting with a note: a Claude has finished and is waiting for you", "waiting", "Fix login bug needs you"),
         ("Sitting with a note: several are waiting", "waiting", "3 Claudes need you"),
-        ("Pawing with a yellow note: blocked on a permission", "needs", "Combo Caller needs access"),
-        ("Pawing with a yellow note: blocked on a question", "needs", "Combo Caller needs help"),
+        ("Pawing with a yellow note: blocked on a permission", "needs", "Fix login bug needs access"),
+        ("Pawing with a yellow note: blocked on a question", "needs", "Fix login bug needs help"),
     ]
     let hold = 8.0
     for step in steps {
@@ -190,10 +191,7 @@ func demo() -> Never {
         post(info)
         Thread.sleep(forTimeInterval: hold)
     }
-    print("Being petted (touch the cat to do this yourself)")
     post(["command": "hide"])
-    post(["command": "pet", "seconds": String(hold)])
-    Thread.sleep(forTimeInterval: hold)
     print("Back to what's really happening")
     exit(0)
 }
@@ -208,7 +206,7 @@ func status() -> Never {
     let rows = all.sorted { ($0.value["updated"] as? String ?? "") < ($1.value["updated"] as? String ?? "") }
     for (id, s) in rows {
         let state = (s["state"] as? String ?? "?").padding(toLength: 8, withPad: " ", startingAt: 0)
-        print("\(state) \(id.prefix(8))  \(s["project"] ?? "?")  \(s["note"] ?? "")  since \(s["updated"] ?? "?")")
+        print("\(state) \(id.prefix(8))  \(s["title"] ?? s["project"] ?? "?")  \(s["note"] ?? "")  since \(s["updated"] ?? "?")")
     }
     exit(0)
 }
@@ -218,7 +216,7 @@ func status() -> Never {
 var mood: String?
 var seconds: String?
 var theme: String?
-var quit = false, hide = false, show = false, hook = false, petCat = false, clear = false
+var quit = false, hide = false, show = false, hook = false, clear = false
 var words: [String] = []
 
 var args = CommandLine.arguments.dropFirst().makeIterator()
@@ -232,7 +230,6 @@ while let a = args.next() {
     case "--hide": hide = true
     case "--show": show = true
     case "--hook": hook = true
-    case "--pet": petCat = true
     case "--demo": demo()
     case "--status": status()
     case "--clear": clear = true
@@ -257,7 +254,7 @@ if let m = mood, !moods.contains(m) { fail("Unknown mood '\(m)'. Try: \(moods.jo
 if let t = theme, !themes.contains(t) { fail("Unknown theme '\(t)'. Try: \(themes.joined(separator: ", "))") }
 
 var text = words.joined(separator: " ")
-let nothingElse = mood == nil && theme == nil && !hide && !show && !petCat && !clear
+let nothingElse = mood == nil && theme == nil && !hide && !show && !clear
 if text.isEmpty && nothingElse && isatty(STDIN_FILENO) == 0 {
     text = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -270,10 +267,6 @@ if let t = theme { post(["command": "theme", "theme": t]) }
 if show { post(["command": "show"]) }
 if hide { post(["command": "hide"]) }
 if clear { post(["command": "clear"]) }
-if petCat {
-    post(["command": "pet", "seconds": seconds ?? "3"])
-    exit(0)
-}
 if !text.isEmpty || mood != nil {
     var info: [String: String] = [:]
     if !text.isEmpty { info["text"] = text }

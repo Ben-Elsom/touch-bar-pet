@@ -10,6 +10,8 @@
     <string>Touch Bar Pet</string>
     <key>CFBundleExecutable</key>
     <string>Touch_Bar_Pet</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -17,7 +19,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
-    <string>10.15</string>
+    <string>11.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSPrincipalClass</key>

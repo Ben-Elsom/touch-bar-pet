@@ -1,6 +1,6 @@
 # Cat app plan
 
-Agreed with Ben on 2026-11-09. Not built yet. Free tools only (Xcode Command Line Tools).
+Agreed with Ben on 2026-11-09. Built, apart from what "Where the code stands" lists. Free tools only (Xcode Command Line Tools).
 
 ## The cat
 
@@ -11,13 +11,14 @@ The cat runs on its own, so it works with Claude closed. Most urgent state wins.
 | Blocked | A live permission or question | Paws, persistent yellow note | Opens the app |
 | Needs you | Anything else in Needs your input | Sits, persistent white note | Opens the app |
 | Running | A chat is working, nothing needs you | Walks, as it does today | Opens the app |
-| Contented (new) | Claude open, nothing needs you, nothing running | Closed-eye, blushing sit | Rolls over, makes biscuits |
-| Asleep | Contented for 5 minutes, or Claude app closed | Sleeps | Wakes, rolls over, makes biscuits |
+| Contented (new) | Claude open, nothing needs you, nothing running | Closed-eye, blushing sit | Opens the app |
+| Asleep | Contented for 30 seconds, or Claude app closed | Sleeps | Opens the app |
 
 - Tapping the note does the same as tapping the cat. Better Narrator's copy of the cat behaves the same, so its copy of `Shared/CatMirrorView.swift` needs updating.
-- Notes: yellow for a live permission or question ("Combo Caller needs access"), white otherwise ("Combo Caller needs you"), "3 Claudes need you" for several.
+- Notes: yellow for a live permission or question ("Fix login bug needs access"), white otherwise ("Fix login bug needs you"), "3 Claudes need you" for several.
+- Notes name the chat, using its `title` from the session files, not the project folder (Ben's request, 2026-11-09). Long titles are shortened to fit the bar. If a session has no title yet, fall back to the folder name.
 - Awaiting next step never makes the cat nag.
-- Belly rub art doesn't exist in the sprite. Draw about 8 frames in the same style, preview them large with Ben first, and reuse the hearts. If they aren't good enough, look for a free sprite.
+- No petting, purring or belly rub: Ben dropped them on 2026-11-09. Tapping only ever opens the app.
 
 ## The app
 
@@ -59,18 +60,31 @@ Only tools inside a Claude session can archive, so a small mod calls `archive_se
 
 ## Where the code stands
 
-The cat's current changes are installed but uncommitted (`git status` in this repo). Ben hasn't asked for a commit, so ask before committing. What's there now: blocked paws, finished sits with a note, working walks, no chats sleeps; no sound; `petsay --demo`, `--status` and `--clear`.
+Ask Ben before committing. What's there now: blocked paws, finished sits with a note, working walks, no chats sleeps; no sound; `petsay --demo`, `--status` and `--clear`.
 
-Known problem to fix: `Sessions.tidy()` in `Sources/main.swift` clears a session when its process stops, but most open sessions have no process, so quitting Claude wipes the notes. Use `isArchived` from the session files instead. Nothing clears a note by process any more.
+Done, installed and uncommitted:
+
+- `Sources/ClaudeChats.swift` reads the session files. Notes use chat titles and always keep "needs you" when shortened. A chat the Claude app lists clears only when archived; sessions it doesn't list (`claude` in a terminal) still clear when their process exits.
+- Chats sort into the three sections, and only Needs your input makes the cat nag. Contented and Asleep work. Tapping the cat or its note always opens the window.
+- `Sources/AppWindow.swift` and the app icon (`Tools/make_icon.swift`). Rows show title, time, what the chat wants, Open, Move to Awaiting / Move back, and Archive….
+- Always-visible cat (`Sources/BarBrightness.swift`): while anything holds the display awake, such as Amphetamine, the bar is put back to step 2 whenever it dims further. Measured: steps 1 normal, 2 dimmed, 4 dark; held at step 2 at 286 seconds idle, where it used to reach 4 at about 75. `defaults write com.benelsom.touchbarpet barAwayStep -int 1` holds normal brightness (`dimToStep:1` was accepted but not tested for holding), and `keepBarLit -bool false` turns it off. Burn-in is why step 2 is the default: the bar is OLED.
+- Because of check 2, Archive… warns about uncommitted files and opens the chat for Ben to archive. So there are no checkboxes, "Archive all", 7-day shortcut, to-do warnings or restore button; Recently archived only opens the chat.
+
+To do later:
+
+- Better Narrator's copy of `Shared/CatMirrorView.swift`: a new chat in that folder was asked to copy it on 2026-11-09. Once it's in, remove the "pet" and "petEnd" cases in `received` in `Sources/main.swift`.
+- If step 2 is too faint from across a room: try `barAwayStep` 1, or a bigger, simpler away signal. Phone notification through a free service such as ntfy is the fallback.
+
+Still to verify, all needing Ben: a real finger on the bar, notes on the real bar (Better Narrator's bar covers it), how visible step 2 really is and whether it holds for hours or with the screen locked, and actually quitting Claude. Ben allowed the macOS screen-recording prompt on 2026-11-09, so `screencapture` is fine.
 
 ## Build order
 
 Tell Ben if something needs a purchase (nothing should). Work in `Touch_Bar_Pet`; do the "Check first" list before relying on archiving.
 
 1. Do the three checks below on a throwaway session.
-2. Read the session files and sort sessions into the three sections.
-3. Update the cat: Contented and Asleep states, tap opens the app, belly rub in Contented and Asleep.
-4. Draw the belly rub frames and show Ben a large preview before wiring them in.
+2. Read the session files and sort sessions into the three sections. Use chat titles in the cat's notes.
+3. Update the cat: Contented and Asleep states, tap opens the app.
+4. Dropped: belly rub frames.
 5. Build the window and app icon: sections, rows, links, moving a session by hand.
 6. Build the archive helper and archiving: checkboxes, confirm with the count, warnings, Recently archived.
 7. Tell the Better Narrator session (`🟩 Better Narrator app`, it may have been renamed) that `Shared/CatMirrorView.swift` changed, and what to copy. Don't edit that repo directly.
@@ -85,6 +99,12 @@ Tell Ben if something needs a purchase (nothing should). Work in `Touch_Bar_Pet`
 
 If 2 fails, the app opens the chat instead and Ben archives it in Claude.
 
+Results, 2026-11-09:
+
+1. Passed. `open claude://claude.ai/epitaxy/<sessionId>` opened the right chat (its `lastFocusedAt` updated).
+2. Failed in auto mode. The mod reached `archive_session`, but `$.mcp.call` was refused twice: "The server-side auto mode classifier gave no verdict". Other permission modes weren't tested. So the app opens the chat and Ben archives it in Claude, and the archive helper isn't built unless this changes.
+3. Called from a chat in auto mode, archiving a session just opened by link went through without a refusal. `unarchive_session` restored it. Whether it was still on screen wasn't confirmed.
+
 ## Last step
 
-Remove the 🟩/🟥 title markers. The instruction wasn't in the main `CLAUDE.md` or memory files, so find where it lives.
+Done 2026-11-09. No instruction creates the 🟩/🟥 title markers any more; the two open chats that still had one were renamed, and archived chats keep theirs. The app still strips them from titles it shows.

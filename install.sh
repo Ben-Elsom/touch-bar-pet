@@ -23,5 +23,5 @@ cp build/petsay "$DEST_BIN/petsay"
 "$DEST_BIN/petsay" --help >/dev/null
 
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST_APP"
-open -g "$DEST_APP"
+open -g "$DEST_APP" --args --background
 echo "Installed $DEST_APP and $DEST_BIN/petsay"

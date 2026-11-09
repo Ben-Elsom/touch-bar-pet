@@ -27,13 +27,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "Building Touch_Bar_Pet.app…"
 swiftc -O "${FLAGS[@]}" -import-objc-header Sources/TouchBarPrivate.h \
-  Sources/main.swift -o "$APP/Contents/MacOS/Touch_Bar_Pet"
+  Sources/main.swift Sources/ClaudeChats.swift Sources/AppWindow.swift Sources/BarBrightness.swift -o "$APP/Contents/MacOS/Touch_Bar_Pet"
 
 echo "Building petsay…"
 swiftc -O "${FLAGS[@]}" Sources/petsay.swift -o build/petsay
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp Resources/Cat_Sprite_Sheet.png "$APP/Contents/Resources/"
+cp Resources/Cat_Sprite_Sheet.png Resources/AppIcon.icns "$APP/Contents/Resources/"
 
 codesign --force --sign - "$APP" >/dev/null 2>&1
 codesign --force --sign - build/petsay >/dev/null 2>&1
