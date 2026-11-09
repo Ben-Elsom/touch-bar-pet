@@ -61,4 +61,4 @@ sudo /bin/bash -euc '
   launchctl bootstrap system "$4"
   launchctl bootstrap system "$3"
 ' _ "$TMP" "$TOOL" "$NUDGE_PLIST" "$KARABINER_PLIST"
-echo "Installed. The Touch Bar now stays on while Amphetamine holds the display."
+echo "Installed. The Touch Bar now stays on while Amphetamine holds the display or Claude is open."

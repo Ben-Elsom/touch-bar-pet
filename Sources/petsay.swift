@@ -139,6 +139,13 @@ func handleHook() -> Never {
     if let tool { info["tool"] = tool }
     // These tools are Claude stopping to ask you something.
     let asksYou = tool == "AskUserQuestion" || tool == "ExitPlanMode"
+    // These tools show their own "Allow…?" card in the Claude app while they run,
+    // so Claude Code never sends a PermissionRequest for them. Their PostToolUse
+    // clears the note once you answer.
+    let showsOwnPrompt = tool.map { t in
+        ["__request_access", "__request_full_control", "__request_teach_access",
+         "__request_directory", "__request_keep_awake"].contains { t.hasSuffix($0) }
+    } ?? false
     switch event {
     case "PermissionRequest":
         info["hook"] = "Notification"
@@ -146,6 +153,9 @@ func handleHook() -> Never {
     case "PreToolUse" where asksYou:
         info["hook"] = "Notification"
         info["kind"] = "help"
+    case "PreToolUse" where showsOwnPrompt:
+        info["hook"] = "Notification"
+        info["kind"] = "access"
     case "Notification":
         let type = (j["notification_type"] as? String ?? "").lowercased()
         let msg = (j["message"] as? String ?? "").lowercased()

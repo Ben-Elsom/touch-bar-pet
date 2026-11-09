@@ -26,7 +26,8 @@ A note stays until you answer that Claude or archive the chat. Quitting Claude d
 clear it, and a restart of the pet remembers who's waiting. A session the Claude app
 doesn't list, such as `claude` in a terminal, clears when its process exits. One known
 gap: there's no event for approving a permission, so "needs access" stays until the
-approved tool finishes.
+approved tool finishes. Tools that show their own "Allow…?" card in the Claude app,
+such as computer use's app access request, count as "needs access" too.
 
 ## The window
 
@@ -43,8 +44,14 @@ private session files, read-only, so a Claude update could break this list.
 
 The Touch Bar goes blank about 75 seconds after your last input, even with Amphetamine
 on, and only a real input device wakes it. The optional helper in `Helper/` fixes that:
-while Amphetamine is holding the display and you've been idle for 30 seconds, it moves
+while the display is being held awake and you've been idle for 30 seconds, it moves
 the pointer one pixel and back through Karabiner's free virtual mouse.
+
+The display counts as held while an Amphetamine session is on, or while the Claude app
+is open (or a terminal Claude is working or waiting on you). The pet keeps the display
+awake itself then, with no time limit, so you can leave it overnight and see at a
+glance whether Claude is still working (walking), stuck (pawing), waiting on you
+(sitting) or all done (asleep). The bar only goes dark once Claude is closed.
 
 1. Install [Karabiner-DriverKit-VirtualHIDDevice](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice) 8.7.0 and allow its driver extension in System Settings.
 2. Run `Helper/install_helper.sh`, which asks for your password.
@@ -55,7 +62,8 @@ driver too. `build/touchbar_nudge --check` shows what the helper would do right 
 
 Things to know: the helper and Karabiner's service run as root at every boot, because
 Karabiner only accepts root clients. The nudges count as activity, so the screen saver
-and auto-lock won't start while Amphetamine is on. The bar is OLED, so a note left
+and auto-lock won't start while Amphetamine is on or Claude is
+open. The bar is OLED, so a note left
 showing for many hours risks burn-in.
 
 ## Install

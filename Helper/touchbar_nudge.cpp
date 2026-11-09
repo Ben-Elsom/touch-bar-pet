@@ -1,7 +1,7 @@
-// touchbar_nudge: keeps the Touch Bar showing while Amphetamine holds the display.
+// touchbar_nudge: keeps the Touch Bar showing while Amphetamine or Touch Bar Pet holds the display.
 //
 // The Touch Bar goes blank about 75 seconds after real input, and only a real input
-// device wakes it. So while Amphetamine is holding the display awake and nothing has
+// device wakes it. So while Amphetamine (or Touch Bar Pet, while Claude is open) is holding the display awake and nothing has
 // happened for 30 seconds, this moves the pointer one pixel and back through
 // Karabiner's virtual mouse.
 //
@@ -43,7 +43,7 @@ std::string to_string(CFStringRef s) {
   return CFStringGetCString(s, buffer, sizeof(buffer), kCFStringEncodingUTF8) ? buffer : "";
 }
 
-/// True while an Amphetamine session is stopping the display from sleeping.
+/// True while Amphetamine or Touch Bar Pet is stopping the display from sleeping.
 bool amphetamine_holds_display() {
   CFDictionaryRef by_process = nullptr;
   if (IOPMCopyAssertionsByProcess(&by_process) != kIOReturnSuccess || !by_process) return false;
@@ -58,7 +58,9 @@ bool amphetamine_holds_display() {
       auto assertion = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(assertions, a));
       auto type = to_string(static_cast<CFStringRef>(CFDictionaryGetValue(assertion, kIOPMAssertionTypeKey)));
       auto name = to_string(static_cast<CFStringRef>(CFDictionaryGetValue(assertion, kIOPMAssertionNameKey)));
-      found = type == "PreventUserIdleDisplaySleep" && name.rfind("Amphetamine", 0) == 0;
+      // Amphetamine, or Touch Bar Pet itself while Claude is open.
+      found = type == "PreventUserIdleDisplaySleep" &&
+              (name.rfind("Amphetamine", 0) == 0 || name.rfind("Touch Bar Pet", 0) == 0);
     }
   }
   CFRelease(by_process);
@@ -101,7 +103,7 @@ int main(int argc, char** argv) {
     bool held = amphetamine_holds_display();
     bool on = switched_on();
     std::cout << "Switched on in the window: " << (on ? "yes" : "no")
-              << "\nAmphetamine holding display: " << (held ? "yes" : "no") << "\nidle seconds: " << idle
+              << "\nAmphetamine or the pet holding display: " << (held ? "yes" : "no") << "\nidle seconds: " << idle
               << "\nwould nudge: " << (on && held && idle >= kNudgeAfterIdleSeconds ? "yes" : "no") << std::endl;
     return 0;
   }

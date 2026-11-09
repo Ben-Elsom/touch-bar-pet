@@ -7,6 +7,7 @@
 // Sprite: "2D Pixel Art Cat Sprites" by Elthen (elthen.itch.io).
 
 import AppKit
+import IOKit.pwr_mgt
 
 // MARK: - Identity & shared names (keep in sync with petsay.swift and Shared/CatMirrorView.swift)
 
@@ -842,7 +843,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastPublished = [:] // the next tick sends the current state again
     }
 
+    /// Keeps the display awake while Claude is open or a Claude needs you, without needing an Amphetamine
+    /// session. The helper (Helper/touchbar_nudge.cpp) looks for this assertion by
+    /// name and then keeps the Touch Bar itself lit.
+    var displayAssertion: IOPMAssertionID = 0
+    func holdDisplay(_ on: Bool) {
+        if on, displayAssertion == 0 {
+            var id: IOPMAssertionID = 0
+            let name = "Touch Bar Pet: showing Claude's status" as CFString
+            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                           IOPMAssertionLevel(kIOPMAssertionLevelOn), name, &id) == kIOReturnSuccess {
+                displayAssertion = id
+            }
+        } else if !on, displayAssertion != 0 {
+            IOPMAssertionRelease(displayAssertion)
+            displayAssertion = 0
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        holdDisplay(false)
         DistributedNotificationCenter.default().postNotificationName(
             kStateNote, object: nil, userInfo: ["mood": "gone"], deliverImmediately: true)
     }
@@ -870,6 +890,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if summaryCheck <= 0 {
             summaryCheck = 1
             claude = settled(sessions.summary())
+            // Lit for as long as there's a Claude to report on, so you can tell at a
+            // glance whether it's working, stuck or done (the cat asleep). Only once the
+            // Claude app is closed and nothing's left does the bar go dark.
+            let claudeOpen = !NSRunningApplication.runningApplications(withBundleIdentifier: kClaudeBundleID).isEmpty
+            let busy = [.working, .needs, .waiting].contains(claude.mood)
+            holdDisplay((claudeOpen || busy) && AlwaysOnTouchBar.isOn)
             appWindow.reload()
         }
 
