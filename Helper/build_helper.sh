@@ -21,7 +21,7 @@ fi
 clang++ -std=c++2b -O2 -w \
   -isystem "$SRC/vendor/vendor/include" -isystem "$SRC/include" \
   Helper/touchbar_nudge.cpp \
-  -framework CoreFoundation -framework IOKit -framework Foundation \
+  -framework CoreFoundation -framework IOKit -framework Foundation -framework SystemConfiguration \
   -o build/touchbar_nudge
 codesign --force --sign - build/touchbar_nudge >/dev/null 2>&1
 echo "Built build/touchbar_nudge"

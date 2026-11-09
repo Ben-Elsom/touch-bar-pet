@@ -5,6 +5,10 @@
 // happened for 30 seconds, this moves the pointer one pixel and back through
 // Karabiner's virtual mouse.
 //
+// The switch in the Touch Bar Pet window turns this off by creating a marker file in
+// the signed-in user's Application Support folder. This only checks that the file
+// exists and never opens it.
+//
 // It runs as root because Karabiner's virtual devices only accept root clients. It
 // takes no input from anywhere and can do nothing except this one nudge.
 //
@@ -15,6 +19,7 @@
 #include <IOKit/IOKitLib.h>
 #include <IOKit/hidsystem/IOHIDLib.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
+#include <SystemConfiguration/SystemConfiguration.h>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -22,6 +27,8 @@
 #include <iostream>
 #include <pqrs/karabiner/driverkit/virtual_hid_device_driver.hpp>
 #include <pqrs/karabiner/driverkit/virtual_hid_device_service.hpp>
+#include <pwd.h>
+#include <sys/stat.h>
 #include <thread>
 
 namespace {
@@ -58,6 +65,19 @@ bool amphetamine_holds_display() {
   return found;
 }
 
+/// False once the signed-in user has switched this off in the Touch Bar Pet window.
+bool switched_on() {
+  uid_t uid = 0;
+  CFStringRef user = SCDynamicStoreCopyConsoleUser(nullptr, &uid, nullptr);
+  if (!user) return true;
+  CFRelease(user);
+  const passwd* account = getpwuid(uid);
+  if (!account || !account->pw_dir) return true;
+  std::string marker = std::string(account->pw_dir) + "/Library/Application Support/Touch_Bar_Pet/always_on_off";
+  struct stat info;
+  return lstat(marker.c_str(), &info) != 0;
+}
+
 /// Seconds since the last input from any device, or -1 if macOS won't say.
 double seconds_idle() {
   io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass));
@@ -79,8 +99,10 @@ int main(int argc, char** argv) {
   if (argc > 1 && std::strcmp(argv[1], "--check") == 0) {
     double idle = seconds_idle();
     bool held = amphetamine_holds_display();
-    std::cout << "Amphetamine holding display: " << (held ? "yes" : "no") << "\nidle seconds: " << idle
-              << "\nwould nudge: " << (held && idle >= kNudgeAfterIdleSeconds ? "yes" : "no") << std::endl;
+    bool on = switched_on();
+    std::cout << "Switched on in the window: " << (on ? "yes" : "no")
+              << "\nAmphetamine holding display: " << (held ? "yes" : "no") << "\nidle seconds: " << idle
+              << "\nwould nudge: " << (on && held && idle >= kNudgeAfterIdleSeconds ? "yes" : "no") << std::endl;
     return 0;
   }
 
@@ -98,7 +120,7 @@ int main(int argc, char** argv) {
   client->async_start();
 
   while (!should_exit) {
-    if (ready && amphetamine_holds_display() && seconds_idle() >= kNudgeAfterIdleSeconds) {
+    if (ready && switched_on() && amphetamine_holds_display() && seconds_idle() >= kNudgeAfterIdleSeconds) {
       hid_report::pointing_input right;
       right.x = 1;
       client->async_post_report(right);

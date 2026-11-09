@@ -49,6 +49,7 @@ the pointer one pixel and back through Karabiner's free virtual mouse.
 1. Install [Karabiner-DriverKit-VirtualHIDDevice](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice) 8.7.0 and allow its driver extension in System Settings.
 2. Run `Helper/install_helper.sh`, which asks for your password.
 
+The **Always-On Touch Bar** switch in the window turns this on or off; it starts on.
 Run `Helper/uninstall_helper.sh` to remove the helper, adding `--driver` to remove the
 driver too. `build/touchbar_nudge --check` shows what the helper would do right now.
 
@@ -109,3 +110,34 @@ petsay --quit                      # quit; Claude hooks won't relaunch it until 
 
 Cat sprite: [2D Pixel Art Cat Sprites](https://elthen.itch.io/2d-pixel-art-cat-sprites)
 by Elthen, free for commercial and non-commercial use.
+
+## Karabiner is separate software
+
+The always-on Touch Bar depends on Karabiner-DriverKit-VirtualHIDDevice, which is made
+by pqrs-org and installed separately, not part of this project. If the bar starts going
+blank while Amphetamine is on, especially after a macOS update, suspect Karabiner first:
+it may need updating.
+
+To diagnose:
+
+- `build/touchbar_nudge --check` shows whether the switch, Amphetamine and idle time
+  would allow a nudge. Run `Helper/build_helper.sh` first if it's missing.
+- `systemextensionsctl list | grep pqrs` should say `activated enabled`.
+- `launchctl print system/com.benelsom.touchbarpet.nudge` and
+  `launchctl print system/com.benelsom.touchbarpet.karabiner-daemon` should both say
+  `state = running`.
+- Check [its releases](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice/releases)
+  for a newer version and macOS support notes.
+
+To update it, the driver and the client headers must match, because its service rejects
+a different `client_protocol_version`:
+
+1. Check the new package: `pkgutil --check-signature` should show Fumihiko Takayama
+   (G43BCU2T37), notarized by Apple, and its hash should match the release page.
+2. Install it. A new driver may need approval in System Settings.
+3. Change `TAG` and `COMMIT` in `Helper/build_helper.sh` to that release and delete
+   `build/karabiner_src`.
+4. Run `Helper/install_helper.sh`.
+
+To tell whether the bar is really showing, look at it. Its brightness step can report a
+lit level while it shows nothing.

@@ -54,6 +54,31 @@ func shortAgo(_ date: Date) -> String {
     return "\(minutes / (24 * 60)) days"
 }
 
+/// The switch for Helper/touchbar_nudge. Off is a marker file the helper only checks
+/// for and never reads, so nothing in it can reach a process running as root.
+/// Keep the path in sync with Helper/touchbar_nudge.cpp.
+enum AlwaysOnTouchBar {
+    private static let marker = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Touch_Bar_Pet/always_on_off")
+
+    static var isInstalled: Bool {
+        FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/com.benelsom.touchbarpet.nudge")
+    }
+
+    static var isOn: Bool {
+        get { !FileManager.default.fileExists(atPath: marker.path) }
+        set {
+            if newValue {
+                try? FileManager.default.removeItem(at: marker)
+            } else {
+                try? FileManager.default.createDirectory(
+                    at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+                FileManager.default.createFile(atPath: marker.path, contents: nil)
+            }
+        }
+    }
+}
+
 // MARK: - Small views
 
 /// An SF Symbol button with no border, the way a list row's actions look. The symbol
@@ -331,10 +356,12 @@ final class AppWindow: NSObject, NSWindowDelegate {
             add(sectionHeading(section.heading, count: inSection.count), spaceAfter: 6)
             add(group(inSection.isEmpty ? [emptyRow(section.empty)] : inSection.map(view(for:))), spaceAfter: 22)
         }
-        add(archivedHeading(count: archived.count), spaceAfter: 6)
+        add(archivedHeading(count: archived.count), spaceAfter: showArchived ? 6 : 22)
         if showArchived {
-            add(group(archived.isEmpty ? [emptyRow("Nothing archived yet.")] : archived.map(view(forArchived:))))
+            add(group(archived.isEmpty ? [emptyRow("Nothing archived yet.")] : archived.map(view(forArchived:))), spaceAfter: 22)
         }
+        // A setting you rarely change, so it stays out of the way at the bottom.
+        add(group([alwaysOnRow()]))
     }
 
     private func updateHeader(_ rows: [ChatRow]) {
@@ -542,6 +569,41 @@ final class AppWindow: NSObject, NSWindowDelegate {
         let link = chatLink(chat.sessionId)
         if let link { content.append(openButton(link)) }
         return rowFrame(content, link: link, tooltip: nil)
+    }
+
+    // MARK: Always-on
+
+    private func alwaysOnRow() -> NSView {
+        let icon = NSImageView(image: NSImage(systemSymbolName: "sun.max", accessibilityDescription: nil) ?? NSImage())
+        icon.symbolConfiguration = .init(pointSize: 15, weight: .regular)
+        icon.contentTintColor = .secondaryLabelColor
+
+        let installed = AlwaysOnTouchBar.isInstalled
+        let detail = installed
+            ? "Keeps the cat visible while Amphetamine holds the display."
+            : "Needs the helper: run Helper/install_helper.sh."
+        let words = NSStackView(views: [
+            label("Always-On Touch Bar", style: .body),
+            label(detail, style: .subheadline, color: .secondaryLabelColor),
+        ])
+        words.orientation = .vertical
+        words.alignment = .leading
+        words.spacing = 1
+        words.setContentHuggingPriority(.init(1), for: .horizontal)
+        words.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let toggle = NSSwitch()
+        toggle.state = installed && AlwaysOnTouchBar.isOn ? .on : .off
+        toggle.isEnabled = installed
+        toggle.target = self
+        toggle.action = #selector(alwaysOnChanged(_:))
+        toggle.setAccessibilityLabel("Always-On Touch Bar")
+        toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return rowFrame([fixedWidth(icon), words, toggle], link: nil, tooltip: nil)
+    }
+
+    @objc private func alwaysOnChanged(_ sender: NSSwitch) {
+        AlwaysOnTouchBar.isOn = sender.state == .on
     }
 
     // MARK: Archiving
