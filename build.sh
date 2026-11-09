@@ -27,7 +27,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "Building Touch_Bar_Pet.app…"
 swiftc -O "${FLAGS[@]}" -import-objc-header Sources/TouchBarPrivate.h \
-  Sources/main.swift Sources/ClaudeChats.swift Sources/AppWindow.swift Sources/BarBrightness.swift -o "$APP/Contents/MacOS/Touch_Bar_Pet"
+  Sources/main.swift Sources/ClaudeChats.swift Sources/AppWindow.swift -o "$APP/Contents/MacOS/Touch_Bar_Pet"
 
 echo "Building petsay…"
 swiftc -O "${FLAGS[@]}" Sources/petsay.swift -o build/petsay

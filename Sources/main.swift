@@ -684,7 +684,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var sheet: SpriteSheet!
     let pet = Pet()
     let sessions = Sessions()
-    let barBrightness = BarBrightness()
     lazy var appWindow = AppWindow(sessions: sessions, pet: pet, sheet: sheet)
     let bar = NSTouchBar()
     var barView: BarView!
@@ -872,7 +871,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             summaryCheck = 1
             claude = settled(sessions.summary())
             appWindow.reload()
-            barBrightness.keepLit()
         }
 
         // Work out what to show: a manual note wins while it lasts, otherwise Claude's state.

@@ -41,21 +41,21 @@ private session files, read-only, so a Claude update could break this list.
 
 ## Staying visible while you're away
 
-The Touch Bar normally goes dark about 75 seconds after your last input, even with
-Amphetamine holding the screen on. While something is holding the display awake, the
-cat keeps the bar at its dimmed level so a glance still shows whether Claude needs
-you. When nothing is holding the display awake, the bar dims as usual.
+The Touch Bar goes blank about 75 seconds after your last input, even with Amphetamine
+on, and only a real input device wakes it. The optional helper in `Helper/` fixes that:
+while Amphetamine is holding the display and you've been idle for 30 seconds, it moves
+the pointer one pixel and back through Karabiner's free virtual mouse.
 
-Not confirmed yet: past 75 seconds idle a capture of the bar comes back black, so the
-cat may not actually be visible then.
+1. Install [Karabiner-DriverKit-VirtualHIDDevice](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice) 8.7.0 and allow its driver extension in System Settings.
+2. Run `Helper/install_helper.sh`, which asks for your password.
 
-```bash
-defaults write com.benelsom.touchbarpet barAwayStep -int 1     # stay at normal brightness
-defaults write com.benelsom.touchbarpet keepBarLit -bool false # turn this off
-```
+Run `Helper/uninstall_helper.sh` to remove the helper, adding `--driver` to remove the
+driver too. `build/touchbar_nudge --check` shows what the helper would do right now.
 
-The bar is OLED, so hours at normal brightness with a note in one place risks burn-in.
-This uses a private Apple API; if an update removes it, the bar just dims as usual.
+Things to know: the helper and Karabiner's service run as root at every boot, because
+Karabiner only accepts root clients. The nudges count as activity, so the screen saver
+and auto-lock won't start while Amphetamine is on. The bar is OLED, so a note left
+showing for many hours risks burn-in.
 
 ## Install
 
