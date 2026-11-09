@@ -72,7 +72,6 @@ Done, installed and uncommitted:
 
 To do later:
 
-- Better Narrator's copy of `Shared/CatMirrorView.swift`: a new chat in that folder was asked to copy it on 2026-11-09. Once it's in, remove the "pet" and "petEnd" cases in `received` in `Sources/main.swift`.
 - If step 2 is too faint from across a room: try `barAwayStep` 1, or a bigger, simpler away signal. Phone notification through a free service such as ntfy is the fallback.
 
 Still to verify, all needing Ben: a real finger on the bar, notes on the real bar (Better Narrator's bar covers it), how visible step 2 really is and whether it holds for hours or with the screen locked, and actually quitting Claude. Ben allowed the macOS screen-recording prompt on 2026-11-09, so `screencapture` is fine.

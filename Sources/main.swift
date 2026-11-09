@@ -787,13 +787,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch str("command") {
         case "quit": NSApp.terminate(nil); return
         case "show": present(); return
-        // Older copies of the small cat (Better Narrator) send "pet" and "petEnd" when
-        // touched. Remove these two cases once that copy is updated.
-        case "pet":
-            catTapped()
-            return
-        case "petEnd":
-            return
         case "tap":
             catTapped()
             return
