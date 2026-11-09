@@ -1,16 +1,17 @@
-// petsay: send a message (and/or a mood) to the Touch Bar Pet.
+// petsay: talk to the Touch Bar Pet.
 //
-//   petsay "Build finished!" --mood done
-//   petsay --mood work            (just change what the cat is doing)
-//   echo "hello" | petsay
-//   petsay --hook                 (read a Claude Code hook event from stdin)
-//   petsay --theme ginger | --quit | --hide
+//   petsay "Build finished!" --mood done   show a short note for a few seconds
+//   petsay --mood working                  just change what the cat is doing
+//   petsay --hook                          handle a Claude Code hook event (JSON on stdin)
+//   petsay --demo                          show each state in turn
+//   petsay --status                        list what the cat thinks each Claude is doing
+//   petsay --theme ginger | --show | --hide | --clear | --quit
 
 import AppKit
 
 let bundleID = "com.benelsom.touchbarpet"
 let sayNote = Notification.Name("com.benelsom.touchbarpet.say")
-let moods = ["idle", "think", "work", "done", "needs", "alert", "sleep"]
+let moods = ["inactive", "waiting", "working", "needs", "done", "alert"]
 let themes = ["grey", "ginger", "cream", "blue", "calico"]
 let prefs = UserDefaults(suiteName: bundleID)!
 
@@ -23,11 +24,16 @@ func usage() -> Never {
     print("""
     petsay: talk through your Touch Bar cat
 
-      petsay "message" [--mood MOOD] [--seconds N]
-      petsay --mood MOOD             change the cat's mood without a message
-      echo "message" | petsay        read the message from stdin
+      petsay "message" [--mood MOOD] [--seconds N]   show a short note beside the cat
+      petsay --mood MOOD             change what the cat is doing for a few seconds
+      echo "message" | petsay        read the note from stdin
       petsay --theme NAME            recolour the cat: \(themes.joined(separator: ", "))
-      petsay --hide                  put the bubble away
+      petsay --pet [--seconds N]     pet the cat from here (same as touching it)
+      petsay --demo                  show each state in turn, about a minute
+      petsay --status                list what the cat thinks each Claude is doing
+      petsay --clear                 forget every Claude (for a note that's stuck)
+      petsay --show                  put the cat's bar back on the Touch Bar
+      petsay --hide                  clear a note early
       petsay --quit                  quit the pet (Claude hooks won't relaunch it
                                      until you run petsay yourself again)
       petsay --hook                  handle a Claude Code hook event (JSON on stdin)
@@ -70,82 +76,89 @@ func post(_ info: [String: String]) {
 
 // MARK: - Claude Code hooks
 
-/// Pulls Claude's latest reply out of the hook payload or the session transcript.
-func lastAssistantText(_ j: [String: Any]) -> String? {
-    if let s = j["last_assistant_message"] as? String, !s.isEmpty { return s }
-    guard let path = j["transcript_path"] as? String,
-          let fh = FileHandle(forReadingAtPath: path) else { return nil }
-    defer { try? fh.close() }
-    let size = fh.seekToEndOfFile()
-    let window: UInt64 = 2_000_000
-    fh.seek(toFileOffset: size > window ? size - window : 0)
-    let text = String(decoding: fh.readDataToEndOfFile(), as: UTF8.self)
-    for line in text.split(separator: "\n").reversed() {
-        guard let o = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
-        if o["type"] as? String == "user", (o["message"] as? [String: Any])?["content"] is String {
-            return nil // reached the user's prompt without finding a reply
-        }
-        guard o["type"] as? String == "assistant",
-              let msg = o["message"] as? [String: Any],
-              let content = msg["content"] as? [[String: Any]] else { continue }
-        let parts = content.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
-        let joined = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !joined.isEmpty { return joined }
-    }
-    return nil
+/// "Combo Caller" from ".../Vibe Coded Projects/Combo Caller"; Claude's own
+/// scratch folders just become "Claude".
+func projectName(_ cwd: String?) -> String {
+    guard var cwd, !cwd.isEmpty else { return "Claude" }
+    // A worktree belongs to the project it was made from.
+    if let r = cwd.range(of: "/.claude/worktrees/") { cwd = String(cwd[..<r.lowerBound]) }
+    let base = (cwd as NSString).lastPathComponent
+    if base.hasPrefix("scratch-") || base.isEmpty || cwd == NSHomeDirectory() { return "Claude" }
+    return base.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
 }
 
-/// Turns a markdown reply into one short Touch Bar-friendly line.
-func tidy(_ s: String, max: Int = 160) -> String {
-    var t = s
-    let rules: [(String, String)] = [
-        ("```[\\s\\S]*?```", " "),              // code blocks
-        ("\\[([^\\]]+)\\]\\([^)]*\\)", "$1"),   // links → their text
-        ("(?m)^\\s*#+\\s*", ""),                // headings
-        ("(?m)^\\s*>\\s?", ""),                 // quotes
-        ("(?m)^\\s*([-*•]|\\d+\\.)\\s+", ""),   // list markers
-        ("\\*\\*|__|`", ""),                    // bold, code ticks
-        ("\\|", " "),                           // table pipes
-        ("\\s+", " "),
-    ]
-    for (pattern, replacement) in rules {
-        t = t.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+/// The Claude process running this hook: the first ancestor that isn't a shell.
+/// The cat watches it, so a closed session stops asking for you. 0 if not found.
+func claudeProcess() -> pid_t {
+    let shells: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "env"]
+    var pid = getppid()
+    for _ in 0..<6 {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard pid > 1, sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return 0 }
+        let name = withUnsafeBytes(of: info.kp_proc.p_comm) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+        if !shells.contains(name.trimmingCharacters(in: ["-"])) { return pid }
+        pid = info.kp_eproc.e_ppid
     }
-    t = t.trimmingCharacters(in: .whitespaces)
-    if t.count <= max { return t }
-    let head = String(t.prefix(max))
-    // Prefer ending on a full sentence if there's a decent one.
-    if let r = head.range(of: "[.!?](?=\\s)", options: [.regularExpression, .backwards]),
-       head.distance(from: head.startIndex, to: r.lowerBound) > 40 {
-        return String(head[...r.lowerBound])
-    }
-    if let sp = head.lastIndex(of: " ") { return String(head[..<sp]) + "…" }
-    return head + "…"
+    return 0
+}
+
+/// Only when this file exists, for working out which events Claude really sends.
+let hookLog = NSHomeDirectory() + "/Library/Logs/Touch_Bar_Pet_hooks.log"
+
+func logHook(_ info: [String: String], raw: [String: Any]) {
+    guard let h = FileHandle(forWritingAtPath: hookLog) else { return }
+    let stamp = ISO8601DateFormatter().string(from: Date())
+    let type = raw["notification_type"] as? String ?? ""
+    let line = "\(stamp) \(raw["hook_event_name"] ?? "?") -> \(info["hook"] ?? "") \(info["kind"] ?? "") "
+        + "tool=\(info["tool"] ?? "") type=\(type) session=\((info["session"] ?? "").prefix(8)) "
+        + "project=\(info["project"] ?? "") pid=\(info["pid"] ?? "")\n"
+    h.seekToEndOfFile()
+    h.write(line.data(using: .utf8)!)
+    h.closeFile()
 }
 
 func handleHook() -> Never {
     // Hooks must never block Claude or print anything: UserPromptSubmit's
     // stdout would be added to Claude's context.
     let data = FileHandle.standardInput.readDataToEndOfFile()
-    guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { exit(0) }
-    let event = j["hook_event_name"] as? String ?? ""
+    guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let event = j["hook_event_name"] as? String else { exit(0) }
 
-    var info: [String: String] = [:]
+    var info: [String: String] = [
+        "hook": event,
+        "session": j["session_id"] as? String ?? "?",
+        "project": projectName(j["cwd"] as? String),
+        "pid": String(claudeProcess()),
+    ]
+    let tool = j["tool_name"] as? String
+    // The session-watch mod calls these every 10 seconds in every session, which
+    // would make idle Claudes look busy forever. They're never real work anyway.
+    if let tool, tool.hasPrefix("mcp__ccd_session_mgmt__") { exit(0) }
+    if let tool { info["tool"] = tool }
+    // These tools are Claude stopping to ask you something.
+    let asksYou = tool == "AskUserQuestion" || tool == "ExitPlanMode"
     switch event {
-    case "SessionStart": info = ["mood": "idle", "quiet": "1"]
-    case "UserPromptSubmit": info = ["mood": "think", "quiet": "1"]
-    case "PreToolUse": info = ["mood": "work", "quiet": "1"]
+    case "PermissionRequest":
+        info["hook"] = "Notification"
+        info["kind"] = asksYou ? "help" : "access"
+    case "PreToolUse" where asksYou:
+        info["hook"] = "Notification"
+        info["kind"] = "help"
     case "Notification":
-        let msg = (j["message"] as? String) ?? "Claude needs you"
-        info = ["mood": "needs", "text": tidy(msg)]
-    case "Stop":
-        // A short pause gives the transcript time to catch up with the final reply.
-        var reply = lastAssistantText(j)
-        if reply == nil { Thread.sleep(forTimeInterval: 0.4); reply = lastAssistantText(j) }
-        info = ["mood": "done", "text": tidy(reply ?? "All done!")]
-    case "SessionEnd": info = ["mood": "sleep", "quiet": "1"]
-    default: exit(0)
+        let type = (j["notification_type"] as? String ?? "").lowercased()
+        let msg = (j["message"] as? String ?? "").lowercased()
+        if type.contains("idle") || msg.contains("waiting for your input") {
+            info["kind"] = "idle"
+        } else if type.contains("permission") || msg.contains("permission") {
+            info["kind"] = "access"
+        } else {
+            info["kind"] = "help"
+        }
+    default: break
     }
+    logHook(info, raw: j)
 
     if !isRunning() {
         // Respect `petsay --quit`; otherwise wake the cat up.
@@ -156,12 +169,56 @@ func handleHook() -> Never {
     exit(0)
 }
 
+// MARK: - Looking at the states
+
+/// Each state as it really looks, whatever Claude is doing right now.
+func demo() -> Never {
+    guard ensureRunning() else { fail("Couldn't find or start Touch_Bar_Pet.app. Run install.sh first.") }
+    let steps: [(about: String, mood: String, note: String?)] = [
+        ("Asleep: no Claude is doing anything", "inactive", nil),
+        ("Walking: your reward, Claude is working and nothing needs you", "working", nil),
+        ("Sitting with a note: a Claude has finished and is waiting for you", "waiting", "Combo Caller needs you"),
+        ("Sitting with a note: several are waiting", "waiting", "3 Claudes need you"),
+        ("Pawing with a yellow note: blocked on a permission", "needs", "Combo Caller needs access"),
+        ("Pawing with a yellow note: blocked on a question", "needs", "Combo Caller needs help"),
+    ]
+    let hold = 8.0
+    for step in steps {
+        print(step.about)
+        var info = ["mood": step.mood, "seconds": String(hold + 1)]
+        if let note = step.note { info["text"] = note }
+        post(info)
+        Thread.sleep(forTimeInterval: hold)
+    }
+    print("Being petted (touch the cat to do this yourself)")
+    post(["command": "hide"])
+    post(["command": "pet", "seconds": String(hold)])
+    Thread.sleep(forTimeInterval: hold)
+    print("Back to what's really happening")
+    exit(0)
+}
+
+func status() -> Never {
+    let file = NSHomeDirectory() + "/Library/Application Support/Touch_Bar_Pet/sessions.json"
+    guard let data = FileManager.default.contents(atPath: file),
+          let all = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]], !all.isEmpty else {
+        print("No Claude sessions known.")
+        exit(0)
+    }
+    let rows = all.sorted { ($0.value["updated"] as? String ?? "") < ($1.value["updated"] as? String ?? "") }
+    for (id, s) in rows {
+        let state = (s["state"] as? String ?? "?").padding(toLength: 8, withPad: " ", startingAt: 0)
+        print("\(state) \(id.prefix(8))  \(s["project"] ?? "?")  \(s["note"] ?? "")  since \(s["updated"] ?? "?")")
+    }
+    exit(0)
+}
+
 // MARK: - Arguments
 
 var mood: String?
 var seconds: String?
 var theme: String?
-var quit = false, hide = false, hook = false
+var quit = false, hide = false, show = false, hook = false, petCat = false, clear = false
 var words: [String] = []
 
 var args = CommandLine.arguments.dropFirst().makeIterator()
@@ -173,7 +230,12 @@ while let a = args.next() {
     case "--theme": theme = args.next()
     case "--quit": quit = true
     case "--hide": hide = true
+    case "--show": show = true
     case "--hook": hook = true
+    case "--pet": petCat = true
+    case "--demo": demo()
+    case "--status": status()
+    case "--clear": clear = true
     default: words.append(a)
     }
 }
@@ -189,20 +251,29 @@ if quit {
 // Any manual use means "I want the cat around".
 prefs.set(false, forKey: "stayQuit")
 
+let oldNames = ["idle": "waiting", "think": "waiting", "work": "working", "sleep": "inactive"]
+if let m = mood { mood = oldNames[m] ?? m }
 if let m = mood, !moods.contains(m) { fail("Unknown mood '\(m)'. Try: \(moods.joined(separator: ", "))") }
 if let t = theme, !themes.contains(t) { fail("Unknown theme '\(t)'. Try: \(themes.joined(separator: ", "))") }
 
 var text = words.joined(separator: " ")
-if text.isEmpty && mood == nil && theme == nil && !hide && isatty(STDIN_FILENO) == 0 {
+let nothingElse = mood == nil && theme == nil && !hide && !show && !petCat && !clear
+if text.isEmpty && nothingElse && isatty(STDIN_FILENO) == 0 {
     text = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
-if text.isEmpty && mood == nil && theme == nil && !hide { usage() }
+if text.isEmpty && nothingElse { usage() }
 
 guard ensureRunning() else { fail("Couldn't find or start Touch_Bar_Pet.app. Run install.sh first.") }
 
 if let t = theme { post(["command": "theme", "theme": t]) }
+if show { post(["command": "show"]) }
 if hide { post(["command": "hide"]) }
+if clear { post(["command": "clear"]) }
+if petCat {
+    post(["command": "pet", "seconds": seconds ?? "3"])
+    exit(0)
+}
 if !text.isEmpty || mood != nil {
     var info: [String: String] = [:]
     if !text.isEmpty { info["text"] = text }
