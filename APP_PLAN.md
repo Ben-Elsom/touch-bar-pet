@@ -74,6 +74,8 @@ To do later:
 
 - If step 2 is too faint from across a room: try `barAwayStep` 1, or a bigger, simpler away signal. Phone notification through a free service such as ntfy is the fallback.
 
+Open problem, always-visible cat (found 2026-11-09, paused here): the step number may not mean the bar is showing anything. With `keepLit` holding step 2, `screencapture -b` went fully black at about 75 seconds idle (between 71 and 78) and came back as soon as Ben touched the Mac. The capture was black with `keepBarLit` off too, and neither `petsay --show` nor a new note brought it back, so TouchBarServer may blank the bar's content on its own at that point. Next: have Ben look at the bar past 75 seconds idle. If it's blank, try `turnOn`, step 1, or `IOPMAssertionDeclareUserActivity` (`caffeinate -u -t 2` did not reset idle in a quick test). If nothing works, fall back to a phone notification. The capture may also just be unreliable when idle, which is why Ben's eyes are the real test.
+
 Still to verify, all needing Ben: a real finger on the bar, notes on the real bar (Better Narrator's bar covers it), how visible step 2 really is and whether it holds for hours or with the screen locked, and actually quitting Claude. Ben allowed the macOS screen-recording prompt on 2026-11-09, so `screencapture` is fine.
 
 ## Build order

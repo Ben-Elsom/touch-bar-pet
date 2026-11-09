@@ -46,6 +46,9 @@ Amphetamine holding the screen on. While something is holding the display awake,
 cat keeps the bar at its dimmed level so a glance still shows whether Claude needs
 you. When nothing is holding the display awake, the bar dims as usual.
 
+Not confirmed yet: past 75 seconds idle a capture of the bar comes back black, so the
+cat may not actually be visible then.
+
 ```bash
 defaults write com.benelsom.touchbarpet barAwayStep -int 1     # stay at normal brightness
 defaults write com.benelsom.touchbarpet keepBarLit -bool false # turn this off
