@@ -201,7 +201,9 @@ private final class CatView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let frame = reduceMotion ? 0 : pet.frame
         drawn = (pet.anim, frame)
-        guard let ctx = NSGraphicsContext.current?.cgContext, let image = sheet.image(pet.anim, frame) else { return }
+        guard let ctx = NSGraphicsContext.current?.cgContext,
+              let image = sheet.image(pet.anim, frame,
+                                      matching: ctx.colorSpace ?? window?.colorSpace?.cgColorSpace) else { return }
         ctx.interpolationQuality = .none
         let size = CGFloat(frameSize) * scale
         ctx.draw(image, in: CGRect(x: 4 - artLeft * scale, y: 0, width: size, height: size))
@@ -339,7 +341,8 @@ final class AppWindow: NSObject, NSWindowDelegate {
     /// Called about once a second. Rebuilds only when something changed, or once a
     /// minute so "how long" stays true.
     func reload(force: Bool = false) {
-        guard force || isOpen else { return }
+        // Nothing to keep current while it's minimised or covered by other windows.
+        guard force || (isOpen && window?.occlusionState.contains(.visible) == true) else { return }
         let rows = sessions.rows()
         let archived = sessions.recentlyArchived()
         let stale = Date().timeIntervalSince(lastAgoRefresh) > 60

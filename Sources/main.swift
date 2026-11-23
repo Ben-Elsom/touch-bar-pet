@@ -123,6 +123,34 @@ final class SpriteSheet {
     func apply(theme name: String) {
         frames = makeFrames(Palette.themes[name] ?? [:])
         theme = Palette.themes[name] == nil ? "grey" : name
+        matched = []
+    }
+
+    /// Copies of the frames already in a view's colour space (the window's display is
+    /// Display P3), so drawing them needs no colour conversion. Converting on each draw
+    /// could rebuild CoreGraphics' converter every time. One entry per colour space in
+    /// use, each filled in as frames are drawn.
+    private var matched: [(space: CGColorSpace, frames: [Int: CGImage])] = []
+
+    func image(_ anim: Anim, _ frame: Int, matching space: CGColorSpace?) -> CGImage? {
+        guard let img = image(anim, frame) else { return nil }
+        guard let space, space.model == .rgb, space != img.colorSpace else { return img }
+        let key = anim.row * 64 + frame
+        var slot = matched.firstIndex { $0.space == space }
+        if slot == nil {
+            if matched.count >= 3 { matched.removeFirst() }
+            matched.append((space, [:]))
+            slot = matched.count - 1
+        }
+        if let done = matched[slot!].frames[key] { return done }
+        guard let c = CGContext(data: nil, width: img.width, height: img.height, bitsPerComponent: 8,
+                                bytesPerRow: img.width * 4, space: space,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return img }
+        c.interpolationQuality = .none
+        c.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+        guard let made = c.makeImage() else { return img }
+        matched[slot!].frames[key] = made
+        return made
     }
 
     private func makeFrames(_ map: [RGB: RGB]) -> [[CGImage]] {
@@ -490,8 +518,9 @@ final class Sessions {
 
 // MARK: - Drawing helpers
 
-func drawCat(_ ctx: CGContext, sheet: SpriteSheet, anim: Anim, frame: Int, x: CGFloat, flipped: Bool = false) {
-    guard let img = sheet.image(anim, frame) else { return }
+func drawCat(_ ctx: CGContext, sheet: SpriteSheet, anim: Anim, frame: Int, x: CGFloat, flipped: Bool = false,
+             space: CGColorSpace? = nil) {
+    guard let img = sheet.image(anim, frame, matching: ctx.colorSpace ?? space) else { return }
     ctx.saveGState()
     ctx.interpolationQuality = .none
     let size = CGFloat(frameSize) * artScale
@@ -508,16 +537,31 @@ func drawCat(_ ctx: CGContext, sheet: SpriteSheet, anim: Anim, frame: Int, x: CG
     ctx.restoreGState()
 }
 
+/// The "z" outline at 10pt, made once: laying the letter out as text on every frame
+/// was most of what a sleeping cat cost.
+private let zGlyph: (path: CGPath, descent: CGFloat)? = {
+    let font = roundedFont(size: 10, weight: .heavy) as CTFont
+    var ch: UniChar = 0x7A // "z"
+    var glyph: CGGlyph = 0
+    guard CTFontGetGlyphsForCharacters(font, &ch, &glyph, 1),
+          let path = CTFontCreatePathForGlyph(font, glyph, nil) else { return nil }
+    return (path, CTFontGetDescent(font))
+}()
+
 func drawZzz(at x: CGFloat, baseY: CGFloat, time: Double) {
+    guard let ctx = NSGraphicsContext.current?.cgContext, let z = zGlyph else { return }
     for i in 0..<3 {
         let phase = (time * 0.45 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
         let alpha = sin(phase * .pi) * 0.85
-        let size = 6 + phase * 4
-        let s = NSAttributedString(string: "z", attributes: [
-            .font: roundedFont(size: size, weight: .heavy),
-            .foregroundColor: NSColor(white: 0.85, alpha: alpha),
-        ])
-        s.draw(at: NSPoint(x: x + phase * 7, y: baseY + phase * 14))
+        let scale = (6 + phase * 4) / 10
+        // Same place text drawn at this point would put it: the baseline sits a descent up.
+        ctx.saveGState()
+        ctx.translateBy(x: x + phase * 7, y: baseY + phase * 14 + z.descent * scale)
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.addPath(z.path)
+        ctx.setFillColor(NSColor(white: 0.85, alpha: alpha).cgColor)
+        ctx.fillPath()
+        ctx.restoreGState()
     }
 }
 
@@ -613,9 +657,13 @@ final class BarView: NSView {
             let step = 40 * CGFloat(dt)
             if abs(catX - homeX) <= step { catX = homeX; facingLeft = false } else { catX -= step; facingLeft = true }
         }
-        let typing = note.map { noteT < 0.3 + Double($0.count) / 40 } ?? false
+        typing = note.map { noteT < 0.3 + Double($0.count) / 40 } ?? false
         return catX != startX || typing || pet.anim == Anims.sleep
     }
+
+    private var typing = false
+    /// True while only the slow sleeping animation is on screen, so ticking can slow down.
+    var isDozing: Bool { pet.anim == Anims.sleep && catX == homeX && !typing }
 
     private func attributed(_ s: String) -> NSAttributedString {
         NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: NSColor(white: 0.08, alpha: 1)])
@@ -641,7 +689,8 @@ final class BarView: NSView {
         let walkingHome = catX != homeX && pet.anim != Anims.walk
         let anim = walkingHome ? Anims.walk : pet.anim
         let frame = walkingHome ? Int(time * 10) % Anims.walk.count : pet.frame
-        drawCat(ctx, sheet: sheet, anim: anim, frame: frame, x: catX, flipped: facingLeft)
+        drawCat(ctx, sheet: sheet, anim: anim, frame: frame, x: catX, flipped: facingLeft,
+                space: window?.colorSpace?.cgColorSpace)
         if pet.anim == Anims.sleep { drawZzz(at: catX + 30, baseY: 10, time: time) }
 
         noteRight = 0
@@ -740,12 +789,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ws.addObserver(self, selector: #selector(reshow), name: NSWorkspace.screensDidWakeNotification, object: nil)
         ws.addObserver(self, selector: #selector(reshow), name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
 
+        // Nothing to animate while the display sleeps; hooks still update the state.
+        ws.addObserver(self, selector: #selector(screensSlept), name: NSWorkspace.screensDidSleepNotification, object: nil)
+        ws.addObserver(self, selector: #selector(screensWoke), name: NSWorkspace.screensDidWakeNotification, object: nil)
+
+        // Keeps App Nap from throttling the timer: with no window open, the cat would stutter.
         activity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiatedAllowingIdleSystemSleep], reason: "Animating the Touch Bar pet")
-        let t = Timer(timeInterval: 1.0 / 15, repeats: true) { [weak self] _ in self?.tick() }
-        t.tolerance = 0.02
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        scheduleTimer()
 
         present()
         NSLog("TouchBarPet: ready")
@@ -774,6 +825,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func present() {
         NSTouchBar.tbpPresentSystemModal(bar, placement: placement, systemTrayItemIdentifier: kTrayID)
         lastPresent = Date()
+    }
+
+    /// 15 ticks a second while something moves; 5 while the cat only dozes; none
+    /// while the display is asleep.
+    var screensAsleep = false
+    var timerInterval: TimeInterval = 0
+
+    func scheduleTimer() {
+        let want: TimeInterval = screensAsleep ? 0 : (barView?.isDozing == true ? 1.0 / 5 : 1.0 / 15)
+        guard want != timerInterval else { return }
+        timer?.invalidate()
+        timer = nil
+        timerInterval = want
+        guard want > 0 else { return }
+        let t = Timer(timeInterval: want, repeats: true) { [weak self] _ in self?.tick() }
+        t.tolerance = want * 0.3
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    @objc func screensSlept() {
+        screensAsleep = true
+        scheduleTimer()
+    }
+
+    @objc func screensWoke() {
+        screensAsleep = false
+        lastTick = CACurrentMediaTime()
+        scheduleTimer()
     }
 
     @objc func reshow() {
@@ -808,7 +888,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let hook = str("hook") {
             sessions.handle(hook: hook, session: str("session") ?? "?", project: str("project") ?? "Claude",
                             kind: str("kind"), tool: str("tool"), pid: str("pid").flatMap(Int32.init) ?? 0)
-            summaryCheck = 0 // look again on the next tick
+            summaryCheck = 0
+            tick() // react now, not on the next (possibly slow) tick
             return
         }
 
@@ -820,6 +901,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let seconds = str("seconds").flatMap(Double.init) ?? max(5, Double(text.count) * 0.12 + 3)
         if !text.isEmpty || mood != nil {
             manual = (text, mood ?? .done, Date().addingTimeInterval(seconds))
+            tick()
         }
     }
 
@@ -882,7 +964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func tick() {
         let now = CACurrentMediaTime()
-        let dt = min(now - lastTick, 0.2)
+        let dt = min(now - lastTick, 0.3)
         lastTick = now
 
         // Claude's state only needs a fresh look once a second, or right after an event.
@@ -919,6 +1001,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if frameChanged || somethingMoved { barView.needsDisplay = true }
         if frameChanged { appWindow.stepCat() }
         publish(shown)
+        scheduleTimer()
     }
 }
 

@@ -145,6 +145,18 @@ final class ClaudeChats {
     /// marker, and short enough that "needs access" still fits. Nil if there's nothing left.
     static func displayTitle(_ title: String?, limit: Int = 44) -> String? {
         guard let title else { return nil }
+        // Asked for every chat every second, and titles rarely change.
+        let key = "\(limit)|\(title)"
+        if let hit = titleCache[key] { return hit }
+        if titleCache.count > 1000 { titleCache = [:] }
+        let made = cleanTitle(title, limit: limit)
+        titleCache[key] = .some(made)
+        return made
+    }
+
+    private static var titleCache: [String: String?] = [:]
+
+    private static func cleanTitle(_ title: String, limit: Int) -> String? {
         let markers: Set<Character> = ["🟩", "🟥"]
         var clean = title.unicodeScalars
             .filter { !CharacterSet.controlCharacters.contains($0) }
